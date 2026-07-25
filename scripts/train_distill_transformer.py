@@ -259,22 +259,33 @@ def main():
         if is_main and hasattr(pbar, "set_description"):
             pbar.set_description(f"Distill Loss: {np.mean(losses[-32:]):.4f}")
 
-        # Checkpoint Saving & Direct HF Hub Uploading (Every 100 steps)
+        # Checkpoint Saving & Direct HF Hub Uploading (Every 10 steps)
         if is_main and local_step > 0 and local_step % 10 == 0:
             os.makedirs("models", exist_ok=True)
             temp_checkpoint = config['t_out_path'].replace(".pt", "_latest.pt")
+            
+            # 1. Save Full Checkpoint (for resuming training)
             torch.save({
+                'steps': local_step + start_step,
                 'model_state_dict': inner_model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
-                'steps': step,
-                'losses': losses
+                'scaler_state_dict': scaler.state_dict() if scaler else None
             }, temp_checkpoint)
+            
+            # 2. Save Lightweight Weights-Only Checkpoint (for inference)
+            weights_only_path = temp_checkpoint.replace("_latest.pt", "_weights_only.pt")
+            torch.save({
+                'model_state_dict': inner_model.state_dict(),
+                # Exclude optimizer to save space!
+            }, weights_only_path)
+            
+            print(f"💾 Checkpoints saved to {temp_checkpoint} (Full) and {weights_only_path} (Lightweight)")
             
             if push_hf_repo:
                 try:
                     from scripts.push_to_hf import push_to_hub
                     push_to_hub(repo_id=push_hf_repo, model_path=temp_checkpoint)
+                    push_to_hub(repo_id=push_hf_repo, model_path=weights_only_path)
                     print(f"☁️ Successfully synced latest checkpoint at Step {step} to HF Hub ({push_hf_repo})!")
                 except Exception as e:
                     print(f"⚠️ HF Sync Failed: {e}")
