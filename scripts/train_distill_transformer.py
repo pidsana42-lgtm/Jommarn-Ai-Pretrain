@@ -81,23 +81,43 @@ def main():
             print(f"🔄 Resuming training from checkpoint: {local_checkpoint_path}")
             try:
                 checkpoint = torch.load(local_checkpoint_path, map_location=device, weights_only=False)
-                state_dict = checkpoint['model_state_dict'] if 'model_state_dict' in checkpoint else checkpoint
+                raw_state = checkpoint['model_state_dict'] if 'model_state_dict' in checkpoint else checkpoint
                 
-                # Handle module prefix for DataParallel & ignore non-matching buffer sizes (strict=False)
                 inner_model = model.module if hasattr(model, 'module') else model
-                missing_keys, unexpected_keys = inner_model.load_state_dict({k.replace('module.', ''): v for k, v in state_dict.items()}, strict=False)
-                print(f"✅ Loaded checkpoint weights (ignored {len(unexpected_keys)} buffer mismatches smoothly)!")
+                current_state = inner_model.state_dict()
+                
+                # Filter out buffer size mismatches (e.g. rope_cos, rope_sin, tril due to context length change)
+                clean_state_dict = {}
+                for k, v in raw_state.items():
+                    key = k.replace('module.', '')
+                    if key in current_state:
+                        if current_state[key].shape == v.shape:
+                            clean_state_dict[key] = v
+                        else:
+                            print(f"⏩ Ignoring buffer size mismatch for {key}: checkpoint {v.shape} vs model {current_state[key].shape}")
+                    else:
+                        clean_state_dict[key] = v
+                
+                missing_keys, unexpected_keys = inner_model.load_state_dict(clean_state_dict, strict=False)
+                print(f"🎉 Successfully loaded model weights! (Loaded {len(clean_state_dict)} matching layers)")
                 
                 if 'optimizer_state_dict' in checkpoint:
-                    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                    try:
+                        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                        print("✅ Loaded optimizer state!")
+                    except Exception as opt_err:
+                        print(f"⚠️ Optimizer state shape changed due to context length tuning: starting fresh optimizer state.")
                 if 'scheduler_state_dict' in checkpoint:
-                    scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                    try:
+                        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                    except Exception:
+                        pass
                 else:
                     for _ in range(checkpoint.get('steps', 0)):
                         scheduler.step()
                         
                 start_step = checkpoint.get('steps', 0)
-                print(f"🎉 Successfully resumed model weights, optimizer, and scheduler at Step: {start_step}!")
+                print(f"🎉 Successfully resumed training at Step: {start_step}!")
             except Exception as e:
                 print(f"⚠️ Failed to load checkpoint: {e}. Starting from scratch.")
                 start_step = 0
