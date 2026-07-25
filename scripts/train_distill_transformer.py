@@ -240,7 +240,7 @@ def main():
                 loss = loss / grad_accum_steps
                 loss.backward()
                 
-            accum_loss += loss.item() * grad_accum_steps
+            accum_loss += loss.item()
             
         if use_accelerate and accelerator is not None:
             optimizer.step()
