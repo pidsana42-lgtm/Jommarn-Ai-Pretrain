@@ -5,33 +5,35 @@
 
 # ตัวเลข VOCAB_SIZE ของ Gemma ปกติคือ 256,000 
 # เราจะตั้งค่าเผื่อให้หารด้วย 64 ลงตัวเพื่อประสิทธิภาพ GPU (256000 + padding)
-VOCAB_SIZE = 152064         # ปรับให้เข้ากับ Typhoon OCR (หาร 64 ลงตัวเพื่อ L40S)
-CONTEXT_LENGTH = 4096       
+import os
+import torch
+
+VOCAB_SIZE = 152064         # Typhoon OCR Vocab
+CONTEXT_LENGTH = int(os.getenv("CONTEXT_LENGTH", "512"))       
 N_EMBED = 768               
 N_HEAD = 12                  
-N_BLOCKS = 32               # เพิ่มสมองเป็น 32 ชั้น (เทียบเท่าความลึกของ LLaMA/Mistral)
+N_BLOCKS = 32               # 32 Layers
 N_KV_HEADS = 2              # 2 KV Heads (GQA 6:1 Ratio)
-V_LAYERS = 16               # เพิ่มตาเป็น 16 ชั้น (มาตรฐาน ViT-Large)
+V_LAYERS = 16               # 16 Vision Layers
 
 # Paths
 TRAIN_PATH = "data/train/pile_train.h5"
 DEV_PATH = "data/val/pile_dev.h5"
-TOKENIZER_PATH = "tokenizer.json" # ไฟล์ที่ดึงมาจาก Gemma-4
+TOKENIZER_PATH = "tokenizer.json"
 
-# Training parameters (Optimized for AMD MI300X 192GB - Maximum Performance)
-T_BATCH_SIZE = 32           # ขยับเป็น 32 เพื่อรีดเร้นพลัง VRAM (น่าจะกินประมาณ 80-90%)
-T_GRAD_ACCUM = 16           # สะสม 16 รอบ เพื่อรักษา Effective Batch Size ให้เป็น 512 เท่าเดิม
-T_CONTEXT_LENGTH = 4096     
+# Training parameters (Optimized for Kaggle Dual Tesla T4 GPUs 2x15GB)
+T_BATCH_SIZE = int(os.getenv("BATCH_SIZE", "4"))           # 4 sequences per GPU (Physical batch size = 8 across 2x T4 GPUs)
+T_GRAD_ACCUM = int(os.getenv("GRAD_ACCUM", "16"))          # Accumulate 16 steps
+T_CONTEXT_LENGTH = CONTEXT_LENGTH     
 T_TRAIN_STEPS = 100000     
 T_EVAL_STEPS = 50         
 T_EVAL_ITERS = 100         
 T_LR_DECAY_STEP = 20000    
-T_LR = 1e-4                 # ลดลงเหลือ 1e-4 เพื่อความเสถียรของโมเดล 501M
+T_LR = 1e-4                 
 T_LR_DECAYED = 2e-5        
 T_OUT_PATH = "models/jommarn_omni_206m_l40s.pt"
 
 # Device
-import torch
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 default_config = {
