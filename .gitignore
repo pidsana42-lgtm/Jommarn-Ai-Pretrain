@@ -1,0 +1,29 @@
+# macOS metadata & system files
+._*
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+
+# Python cache & build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Models & Checkpoints
+models/*.pt
+models/*.bin
+models/*.safetensors
+models/*.ckpt
+
+# Data & logs
+*.log
+data/*.jsonl
+data/*.h5
+data/*.parquet
