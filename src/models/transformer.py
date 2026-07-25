@@ -255,37 +255,21 @@ class JommarnOmni(nn.Module):
         # Pre-calculate vision tokens once to save compute
         v_tokens = self.vision_encoder(images) if images is not None else None
         
-        # MTP generates 4 tokens per loop step -> cut steps to a quarter!
-        steps = max(1, max_new_tokens // 4)
-        for _ in range(steps):
+        # Standard Autoregressive Generation (1 token at a time)
+        # ⚠️ We DO NOT blindly use MTP heads for generation without speculative verification!
+        for _ in range(max_new_tokens):
             idx_cond = idx[:, -self.context_length:]
-            logits, _ = self(idx_cond, v_tokens=v_tokens) # Populates self._last_h
+            logits, _ = self(idx_cond, v_tokens=v_tokens) 
             
-            # 1. Sample Token 1 (Standard Head)
+            # Sample Token (Standard Head only)
             logits_curr = logits[:, -1, :] / temperature
             probs_curr = F.softmax(logits_curr, dim=-1)
-            next_id_curr = torch.multinomial(probs_curr, num_samples=1)
+            next_id = torch.multinomial(probs_curr, num_samples=1)
             
-            # Store generated tokens in a list
-            gen_ids = [next_id_curr]
-            h_state = self._last_h.unsqueeze(1) # (B, 1, n_embed)
+            idx = torch.cat((idx, next_id), dim=1)
             
-            # 2. Predict Tokens 2, 3, and 4 recursively using the 3 MTP mixers
-            for k in range(3):
-                emb_prev = self.token_embed(gen_ids[-1]) # Embed the last predicted token
-                h_state = self.mtp_mixers[k](torch.cat([h_state, emb_prev], dim=-1))
-                
-                logits_k = self.lm_head(h_state).squeeze(1) / temperature
-                probs_k = F.softmax(logits_k, dim=-1)
-                next_id_k = torch.multinomial(probs_k, num_samples=1)
-                gen_ids.append(next_id_k)
-                
-            # Concatenate all 4 newly predicted tokens to sequence
-            new_tokens = torch.cat(gen_ids, dim=1)
-            idx = torch.cat((idx, new_tokens), dim=1)
-            
-            # Early stopping check if any generated token is EOS (id 1)
-            if any(tid.item() == 1 for tid in gen_ids):
+            # Early stopping check if EOS (id 1 or typical EOS id)
+            if next_id.item() in [1, 151643, 151645]: # Added Qwen EOS tokens just in case
                 break
         return idx
 
