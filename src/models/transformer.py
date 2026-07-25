@@ -167,26 +167,21 @@ class JommarnOmni(nn.Module):
         # Store the last hidden state for fast MTP inference
         self._last_h = h_text[:, -1, :]
             
-        logits = self.lm_head(h_text)
-        
         loss = None
         if targets is not None:
             # Clamp targets
             targets = torch.clamp(targets, 0, self.lm_head.out_features - 1)
             
-            # For 4-Token MTP, we need targets for:
-            # y1 (t+1), y2 (t+2), y3 (t+3), y4 (t+4)
-            # This requires sequence length to be at least 4.
+            # For 4-Token MTP, we need targets for: y1 (t+1), y2 (t+2), y3 (t+3), y4 (t+4)
             if targets.shape[1] >= 4:
-                # Slicing targets:
                 y1 = targets[:, 0:-3]
                 y2 = targets[:, 1:-2]
                 y3 = targets[:, 2:-1]
                 y4 = targets[:, 3:]
                 
-                # Slicing standard logits to align with y1
+                # Slicing hidden states to align with y1
                 h_text_sliced = h_text[:, :-3, :]
-                logits_1 = logits[:, :-3, :]
+                logits_1 = self.lm_head(h_text_sliced)
                 
                 loss_1_hard = F.cross_entropy(logits_1.reshape(-1, logits_1.size(-1)), y1.reshape(-1).long())
                 
@@ -208,7 +203,6 @@ class JommarnOmni(nn.Module):
                 
                 # Loop through the 3 MTP mixers
                 for k in range(3):
-                    # Condition on the previous target token (e.g. y1 for MTP1, y2 for MTP2, etc.)
                     cond_token = y1 if k == 0 else targets_list[k-1]
                     emb_cond = self.token_embed(cond_token)
                     
@@ -222,7 +216,6 @@ class JommarnOmni(nn.Module):
                     loss_k_hard = F.cross_entropy(logits_k.reshape(-1, logits_k.size(-1)), y_k.reshape(-1).long())
                     
                     if use_distill:
-                        # Teacher logits for position t+2 (k=0), t+3 (k=1), t+4 (k=2)
                         t_logits_k = teacher_top_logits[:, (k+1):(-3 + k + 1) if (-3 + k + 1) < 0 else None, :]
                         t_ids_k = teacher_top_ids[:, (k+1):(-3 + k + 1) if (-3 + k + 1) < 0 else None, :]
                         loss_k_distill = compute_distillation_loss(logits_k, t_logits_k, t_ids_k, temperature=distill_temp)
@@ -236,13 +229,15 @@ class JommarnOmni(nn.Module):
                 loss = loss_1 + 0.3 * sum(mtp_losses)
                 logits = logits_1 # Return primary logits for logging compat
             else:
-                # Fallback to standard 1-token prediction if sequence is too short
+                logits = self.lm_head(h_text)
                 loss_hard = F.cross_entropy(logits.reshape(-1, logits.size(-1)), targets.reshape(-1).long())
                 if teacher_top_logits is not None and teacher_top_ids is not None:
                     loss_distill = compute_distillation_loss(logits, teacher_top_logits, teacher_top_ids, temperature=distill_temp)
                     loss = (1.0 - alpha_distill) * loss_hard + alpha_distill * loss_distill
                 else:
                     loss = loss_hard
+        else:
+            logits = self.lm_head(h_text)
             
         return logits, loss
 

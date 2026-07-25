@@ -34,12 +34,27 @@ def main():
         v_layers=config.get('v_layers', 12)
     )
 
-    if torch.cuda.device_count() > 1:
-        print(f"🔥 Using {torch.cuda.device_count()} GPUs for parallel distillation!")
-        model = torch.nn.DataParallel(model)
+    # 1. Initialize Accelerator or Device
+    use_accelerate = False
+    accelerator = None
+    if "WORLD_SIZE" in os.environ or "LOCAL_RANK" in os.environ or os.getenv("USE_ACCELERATE") == "1":
+        try:
+            from accelerate import Accelerator
+            accelerator = Accelerator()
+            use_accelerate = True
+            device = accelerator.device
+            print(f"🔥 Accelerate DDP Enabled on process rank {accelerator.process_index} (Device: {device})!")
+        except Exception as e:
+            print(f"⚠️ Could not init Accelerator: {e}")
 
-    device = torch.device(config['device'] if torch.cuda.is_available() else "cpu")
-    model = model.to(device)
+    if not use_accelerate:
+        device = torch.device(config['device'] if torch.cuda.is_available() else "cpu")
+        if torch.cuda.device_count() > 1:
+            print(f"🔥 Using {torch.cuda.device_count()} GPUs for parallel distillation (DataParallel)!")
+            model = torch.nn.DataParallel(model)
+        model = model.to(device)
+    else:
+        model = model.to(device)
 
     # 2. Checkpoint Resume & HuggingFace Sync Logic
     start_step = 0
@@ -130,6 +145,12 @@ def main():
     print(f"📊 Distillation Dataset: {dataset_name}")
     print(f"⚙️ Alpha Distill (Soft Loss Ratio): {alpha_distill}")
     print(f"🌡️ Distillation Temperature: {distill_temp}")
+    
+    # 4. Prepare for Accelerate DDP if enabled
+    if use_accelerate and accelerator is not None:
+        model, optimizer, train_loader, scheduler = accelerator.prepare(
+            model, optimizer, train_loader, scheduler
+        )
 
     # 4. Load Data Loader
     train_loader = get_distill_loader(
@@ -147,8 +168,13 @@ def main():
     distill_steps = int(os.getenv("STEPS", "2000"))
     target_total_steps = start_step + distill_steps
     
-    print(f"⚡ Starting Logits Distillation Pretraining from Step {start_step} to {target_total_steps} (+{distill_steps} steps) on {device}...")
-    pbar = tqdm(range(start_step, target_total_steps))
+    is_main = (not use_accelerate) or (accelerator is not None and accelerator.is_main_process)
+    
+    if is_main:
+        print(f"⚡ Starting Logits Distillation Pretraining from Step {start_step} to {target_total_steps} (+{distill_steps} steps) on {device}...")
+        pbar = tqdm(range(start_step, target_total_steps))
+    else:
+        pbar = range(start_step, target_total_steps)
     
     for step in pbar:
         optimizer.zero_grad(set_to_none=True)
@@ -166,7 +192,18 @@ def main():
             t_logits = t_logits.to(device)
             t_ids = t_ids.to(device)
             
-            if torch.cuda.is_available() and scaler is not None:
+            if use_accelerate and accelerator is not None:
+                logits, loss = model(
+                    xb, 
+                    targets=yb, 
+                    teacher_top_logits=t_logits, 
+                    teacher_top_ids=t_ids,
+                    alpha_distill=alpha_distill,
+                    distill_temp=distill_temp
+                )
+                loss = loss / grad_accum_steps
+                accelerator.backward(loss)
+            elif torch.cuda.is_available() and scaler is not None:
                 with torch.amp.autocast('cuda'):
                     logits, loss = model(
                         xb, 
@@ -190,9 +227,11 @@ def main():
                 loss = loss / grad_accum_steps
                 loss.backward()
                 
-            accum_loss += loss.item()
+            accum_loss += loss.item() * grad_accum_steps
             
-        if torch.cuda.is_available() and scaler is not None:
+        if use_accelerate and accelerator is not None:
+            optimizer.step()
+        elif torch.cuda.is_available() and scaler is not None:
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
             scaler.step(optimizer)
@@ -204,10 +243,11 @@ def main():
         scheduler.step()
         losses.append(accum_loss)
         local_step += 1
-        pbar.set_description(f"Distill Loss: {np.mean(losses[-32:]):.4f}")
+        if is_main and hasattr(pbar, "set_description"):
+            pbar.set_description(f"Distill Loss: {np.mean(losses[-32:]):.4f}")
 
         # Checkpoint Saving & HF Uploading (Every 50 / 100 steps)
-        if local_step > 0 and local_step % 50 == 0:
+        if is_main and local_step > 0 and local_step % 50 == 0:
             os.makedirs("models", exist_ok=True)
             temp_checkpoint = config['t_out_path'].replace(".pt", "_latest.pt")
             torch.save({
@@ -218,7 +258,7 @@ def main():
                 'losses': losses
             }, temp_checkpoint)
             
-        if local_step > 0 and local_step % 100 == 0 and push_hf_repo:
+        if is_main and local_step > 0 and local_step % 100 == 0 and push_hf_repo:
             try:
                 from scripts.push_to_hf import push_to_hub
                 temp_checkpoint = config['t_out_path'].replace(".pt", "_latest.pt")
