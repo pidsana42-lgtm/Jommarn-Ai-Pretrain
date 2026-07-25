@@ -250,7 +250,7 @@ class JommarnOmni(nn.Module):
         return logits, loss
 
     @torch.no_grad()
-    def generate(self, idx, images=None, max_new_tokens=100, temperature=0.8):
+    def generate(self, idx, images=None, max_new_tokens=100, temperature=0.8, top_k=50, top_p=0.9, repetition_penalty=1.2):
         self.eval()
         # Pre-calculate vision tokens once to save compute
         v_tokens = self.vision_encoder(images) if images is not None else None
@@ -260,11 +260,42 @@ class JommarnOmni(nn.Module):
         for _ in range(max_new_tokens):
             idx_cond = idx[:, -self.context_length:]
             logits, _ = self(idx_cond, v_tokens=v_tokens) 
+            logits_curr = logits[:, -1, :] 
             
-            # Sample Token (Standard Head only)
-            logits_curr = logits[:, -1, :] / temperature
-            probs_curr = F.softmax(logits_curr, dim=-1)
-            next_id = torch.multinomial(probs_curr, num_samples=1)
+            # 1. Repetition Penalty
+            if repetition_penalty != 1.0:
+                for i in range(idx.shape[0]):
+                    for token_id in set(idx[i].tolist()):
+                        if logits_curr[i, token_id] < 0:
+                            logits_curr[i, token_id] *= repetition_penalty
+                        else:
+                            logits_curr[i, token_id] /= repetition_penalty
+
+            # 2. Temperature & Sampling
+            if temperature > 0.0:
+                logits_curr = logits_curr / temperature
+                
+                # 3. Top-K filtering
+                if top_k is not None and top_k > 0:
+                    v, _ = torch.topk(logits_curr, min(top_k, logits_curr.size(-1)))
+                    logits_curr[logits_curr < v[:, [-1]]] = -float('Inf')
+                    
+                # 4. Top-P (Nucleus) filtering
+                if top_p is not None and top_p < 1.0:
+                    sorted_logits, sorted_indices = torch.sort(logits_curr, descending=True)
+                    cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+                    sorted_indices_to_remove = cumulative_probs > top_p
+                    sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+                    sorted_indices_to_remove[..., 0] = 0
+                    for i in range(sorted_indices.size(0)):
+                        indices_to_remove = sorted_indices[i][sorted_indices_to_remove[i]]
+                        logits_curr[i, indices_to_remove] = -float('Inf')
+
+                probs_curr = F.softmax(logits_curr, dim=-1)
+                next_id = torch.multinomial(probs_curr, num_samples=1)
+            else:
+                # Greedy Decoding
+                next_id = torch.argmax(logits_curr, dim=-1, keepdim=True)
             
             idx = torch.cat((idx, next_id), dim=1)
             
