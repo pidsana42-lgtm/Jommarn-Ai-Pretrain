@@ -191,7 +191,9 @@ class JommarnOmni(nn.Module):
                 if use_distill:
                     t_logits_1 = teacher_top_logits[:, 0:-3, :]
                     t_ids_1 = teacher_top_ids[:, 0:-3, :]
-                    loss_1_distill = compute_distillation_loss(logits_1, t_logits_1, t_ids_1, temperature=distill_temp)
+                    loss_1_distill = torch.utils.checkpoint.checkpoint(
+                        compute_distillation_loss, logits_1, t_logits_1, t_ids_1, distill_temp, use_reentrant=False
+                    )
                     loss_1 = (1.0 - alpha_distill) * loss_1_hard + alpha_distill * loss_1_distill
                 else:
                     loss_1 = loss_1_hard
@@ -213,9 +215,18 @@ class JommarnOmni(nn.Module):
                     logits_k = self.lm_head(current_h)
                     y_k = targets_list[k]
                     
-                    # Memory optimization: Only distill the primary head. 
-                    # Auxiliary MTP heads use only hard targets to save massive amounts of VRAM.
-                    loss_k = F.cross_entropy(logits_k.reshape(-1, logits_k.size(-1)), y_k.reshape(-1).long())
+                    loss_k_hard = F.cross_entropy(logits_k.reshape(-1, logits_k.size(-1)), y_k.reshape(-1).long())
+                    
+                    if use_distill:
+                        t_logits_k = teacher_top_logits[:, (k+1):(-3 + k + 1) if (-3 + k + 1) < 0 else None, :]
+                        t_ids_k = teacher_top_ids[:, (k+1):(-3 + k + 1) if (-3 + k + 1) < 0 else None, :]
+                        # Use checkpointing for memory efficiency
+                        loss_k_distill = torch.utils.checkpoint.checkpoint(
+                            compute_distillation_loss, logits_k, t_logits_k, t_ids_k, distill_temp, use_reentrant=False
+                        )
+                        loss_k = (1.0 - alpha_distill) * loss_k_hard + alpha_distill * loss_k_distill
+                    else:
+                        loss_k = loss_k_hard
                         
                     mtp_losses.append(loss_k)
                     
