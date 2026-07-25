@@ -146,18 +146,18 @@ def main():
     print(f"⚙️ Alpha Distill (Soft Loss Ratio): {alpha_distill}")
     print(f"🌡️ Distillation Temperature: {distill_temp}")
     
-    # 4. Prepare for Accelerate DDP if enabled
-    if use_accelerate and accelerator is not None:
-        model, optimizer, train_loader, scheduler = accelerator.prepare(
-            model, optimizer, train_loader, scheduler
-        )
-
     # 4. Load Data Loader
     train_loader = get_distill_loader(
         dataset_name=dataset_name,
         batch_size=config['t_batch_size'],
         context_length=config['context_length']
     )
+
+    # 5. Prepare for Accelerate DDP if enabled
+    if use_accelerate and accelerator is not None:
+        model, optimizer, train_loader, scheduler = accelerator.prepare(
+            model, optimizer, train_loader, scheduler
+        )
     
     grad_accum_steps = config.get('t_grad_accum', 1)
     train_iter = iter(train_loader)
