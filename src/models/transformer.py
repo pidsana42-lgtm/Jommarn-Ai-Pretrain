@@ -142,10 +142,18 @@ class JommarnOmni(nn.Module):
         curr_T = x.shape[1]
         cos, sin = self.rope_cos[:curr_T], self.rope_sin[:curr_T]
         
-        # Hybrid Attention Processing
+        # Pass through 32 Transformer Blocks (with gradient checkpointing for VRAM efficiency)
         for i, block in enumerate(self.attn_blocks):
-            is_local = (i % 2 == 0) and (i < self.N_BLOCKS - 1)
-            x = block(x, is_local=is_local, rope_cos=cos, rope_sin=sin)
+            # Hybrid Attention: odd layers = Local Sliding Window, even layers = Global Attention
+            is_local = (i % 2 == 1)
+            
+            if self.training and x.requires_grad:
+                # Gradient Checkpointing: trade 15% compute for 60%+ VRAM savings
+                x = torch.utils.checkpoint.checkpoint(
+                    block, x, is_local, cos, sin, use_reentrant=False
+                )
+            else:
+                x = block(x, is_local=is_local, rope_cos=cos, rope_sin=sin)
             
         h = self.final_norm(x)
         
