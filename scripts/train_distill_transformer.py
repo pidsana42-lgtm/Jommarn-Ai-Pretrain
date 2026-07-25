@@ -259,8 +259,8 @@ def main():
         if is_main and hasattr(pbar, "set_description"):
             pbar.set_description(f"Distill Loss: {np.mean(losses[-32:]):.4f}")
 
-        # Checkpoint Saving & Direct HF Hub Uploading (Every 50 steps)
-        if is_main and local_step > 0 and local_step % 50 == 0:
+        # Checkpoint Saving & Direct HF Hub Uploading (Every 100 steps)
+        if is_main and local_step > 0 and local_step % 100 == 0:
             os.makedirs("models", exist_ok=True)
             temp_checkpoint = config['t_out_path'].replace(".pt", "_latest.pt")
             torch.save({
