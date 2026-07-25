@@ -17,6 +17,7 @@ def precompute_rope_freqs(head_size: int, context_length: int, theta: float = 10
 def compute_distillation_loss(student_logits: torch.Tensor, teacher_top_logits: torch.Tensor, teacher_top_ids: torch.Tensor, temperature: float = 1.0) -> torch.Tensor:
     """
     Computes KL-Divergence / Soft Cross-Entropy distillation loss using Top-K sparse teacher logits.
+    Memory-optimized version using logsumexp to avoid allocating huge [B, T, Vocab_Size] log_softmax tensors.
     student_logits: [B, T, Vocab_Size]
     teacher_top_logits: [B, T, K]
     teacher_top_ids: [B, T, K]
@@ -26,14 +27,16 @@ def compute_distillation_loss(student_logits: torch.Tensor, teacher_top_logits: 
     # 1. Compute soft probability target from teacher top-k logits
     p_teacher = F.softmax(teacher_top_logits / temperature, dim=-1)
     
-    # 2. Student log probabilities over full vocabulary
-    log_p_student = F.log_softmax(student_logits / temperature, dim=-1)
+    # 2. Memory-efficient log_softmax gathering without constructing [B, T, V] tensor
+    scaled_logits = student_logits / temperature
+    lse = torch.logsumexp(scaled_logits, dim=-1, keepdim=True)  # [B, T, 1]
     
-    # 3. Gather student log-probs at teacher top-k token indices
     teacher_top_ids_clamped = torch.clamp(teacher_top_ids.long(), 0, V - 1)
-    log_p_student_top = torch.gather(log_p_student, dim=-1, index=teacher_top_ids_clamped)
+    student_top_logits = torch.gather(scaled_logits, dim=-1, index=teacher_top_ids_clamped)  # [B, T, K]
     
-    # 4. Soft Cross-Entropy loss scaled by T^2
+    log_p_student_top = student_top_logits - lse  # [B, T, K]
+    
+    # 3. Soft Cross-Entropy loss scaled by T^2
     loss = -torch.sum(p_teacher * log_p_student_top, dim=-1).mean() * (temperature ** 2)
     return loss
 
