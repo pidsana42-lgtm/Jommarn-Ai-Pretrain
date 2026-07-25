@@ -246,7 +246,7 @@ def main():
         if is_main and hasattr(pbar, "set_description"):
             pbar.set_description(f"Distill Loss: {np.mean(losses[-32:]):.4f}")
 
-        # Checkpoint Saving & HF Uploading (Every 50 / 100 steps)
+        # Checkpoint Saving & Direct HF Hub Uploading (Every 50 steps)
         if is_main and local_step > 0 and local_step % 50 == 0:
             os.makedirs("models", exist_ok=True)
             temp_checkpoint = config['t_out_path'].replace(".pt", "_latest.pt")
@@ -258,15 +258,34 @@ def main():
                 'losses': losses
             }, temp_checkpoint)
             
-        if is_main and local_step > 0 and local_step % 100 == 0 and push_hf_repo:
+            if push_hf_repo:
+                try:
+                    from scripts.push_to_hf import push_to_hub
+                    push_to_hub(repo_id=push_hf_repo, model_path=temp_checkpoint)
+                    print(f"☁️ Successfully synced latest checkpoint at Step {step} to HF Hub ({push_hf_repo})!")
+                except Exception as e:
+                    print(f"⚠️ HF Sync Failed: {e}")
+        
+    # Final Checkpoint Save & HF Hub Push upon completion
+    if is_main:
+        os.makedirs("models", exist_ok=True)
+        temp_checkpoint = config['t_out_path'].replace(".pt", "_latest.pt")
+        torch.save({
+            'model_state_dict': inner_model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict(),
+            'steps': target_total_steps,
+            'losses': losses
+        }, temp_checkpoint)
+        
+        if push_hf_repo:
             try:
                 from scripts.push_to_hf import push_to_hub
-                temp_checkpoint = config['t_out_path'].replace(".pt", "_latest.pt")
                 push_to_hub(repo_id=push_hf_repo, model_path=temp_checkpoint)
-                print(f"☁️ Uploaded latest checkpoint at step {step} to HF Hub ({push_hf_repo})!")
+                print(f"🎉 Final Checkpoint & Model artifacts uploaded to HF Hub ({push_hf_repo})!")
             except Exception as e:
-                print(f"⚠️ HF Sync Failed: {e}")
-        
+                print(f"⚠️ Final HF Upload Failed: {e}")
+
     print("🎉 Logits Distillation Pretraining Run Complete!")
 
 if __name__ == '__main__':
