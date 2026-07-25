@@ -144,10 +144,11 @@ def main():
     local_step = 0
     inner_model = model.module if hasattr(model, 'module') else model
     
-    total_steps = int(os.getenv("STEPS", "2000"))
+    distill_steps = int(os.getenv("STEPS", "2000"))
+    target_total_steps = start_step + distill_steps
     
-    print(f"⚡ Starting Logits Distillation Pretraining from Step {start_step} to {total_steps} on {device}...")
-    pbar = tqdm(range(start_step, total_steps))
+    print(f"⚡ Starting Logits Distillation Pretraining from Step {start_step} to {target_total_steps} (+{distill_steps} steps) on {device}...")
+    pbar = tqdm(range(start_step, target_total_steps))
     
     for step in pbar:
         optimizer.zero_grad(set_to_none=True)
