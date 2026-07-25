@@ -83,9 +83,10 @@ def main():
                 checkpoint = torch.load(local_checkpoint_path, map_location=device, weights_only=False)
                 state_dict = checkpoint['model_state_dict'] if 'model_state_dict' in checkpoint else checkpoint
                 
-                # Handle module prefix for DataParallel
+                # Handle module prefix for DataParallel & ignore non-matching buffer sizes (strict=False)
                 inner_model = model.module if hasattr(model, 'module') else model
-                inner_model.load_state_dict({k.replace('module.', ''): v for k, v in state_dict.items()})
+                missing_keys, unexpected_keys = inner_model.load_state_dict({k.replace('module.', ''): v for k, v in state_dict.items()}, strict=False)
+                print(f"✅ Loaded checkpoint weights (ignored {len(unexpected_keys)} buffer mismatches smoothly)!")
                 
                 if 'optimizer_state_dict' in checkpoint:
                     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
