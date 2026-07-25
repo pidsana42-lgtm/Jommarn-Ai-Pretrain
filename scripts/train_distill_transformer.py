@@ -95,7 +95,7 @@ def main():
         if os.path.exists(local_checkpoint_path):
             print(f"🔄 Resuming training from checkpoint: {local_checkpoint_path}")
             try:
-                checkpoint = torch.load(local_checkpoint_path, map_location=device, weights_only=False)
+                checkpoint = torch.load(local_checkpoint_path, map_location="cpu", weights_only=False)
                 raw_state = checkpoint['model_state_dict'] if 'model_state_dict' in checkpoint else checkpoint
                 
                 inner_model = model.module if hasattr(model, 'module') else model
@@ -133,6 +133,14 @@ def main():
                         
                 start_step = checkpoint.get('steps', 0)
                 print(f"🎉 Successfully resumed training at Step: {start_step}!")
+                
+                # Free CPU memory used by checkpoint
+                del checkpoint
+                del raw_state
+                del clean_state_dict
+                import gc
+                gc.collect()
+                torch.cuda.empty_cache()
             except Exception as e:
                 print(f"⚠️ Failed to load checkpoint: {e}. Starting from scratch.")
                 start_step = 0
