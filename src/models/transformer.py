@@ -213,17 +213,14 @@ class JommarnOmni(nn.Module):
                     logits_k = self.lm_head(current_h)
                     y_k = targets_list[k]
                     
-                    loss_k_hard = F.cross_entropy(logits_k.reshape(-1, logits_k.size(-1)), y_k.reshape(-1).long())
-                    
-                    if use_distill:
-                        t_logits_k = teacher_top_logits[:, (k+1):(-3 + k + 1) if (-3 + k + 1) < 0 else None, :]
-                        t_ids_k = teacher_top_ids[:, (k+1):(-3 + k + 1) if (-3 + k + 1) < 0 else None, :]
-                        loss_k_distill = compute_distillation_loss(logits_k, t_logits_k, t_ids_k, temperature=distill_temp)
-                        loss_k = (1.0 - alpha_distill) * loss_k_hard + alpha_distill * loss_k_distill
-                    else:
-                        loss_k = loss_k_hard
+                    # Memory optimization: Only distill the primary head. 
+                    # Auxiliary MTP heads use only hard targets to save massive amounts of VRAM.
+                    loss_k = F.cross_entropy(logits_k.reshape(-1, logits_k.size(-1)), y_k.reshape(-1).long())
                         
                     mtp_losses.append(loss_k)
+                    
+                    # ⚠️ FREE MEMORY IMMEDIATELY: logits_k is massive [B, T, V]
+                    del logits_k
                 
                 # Combined Loss: Primary loss + 0.3 * sum(MTP losses)
                 loss = loss_1 + 0.3 * sum(mtp_losses)
