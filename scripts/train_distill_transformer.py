@@ -40,7 +40,7 @@ def main():
     if "WORLD_SIZE" in os.environ or "LOCAL_RANK" in os.environ or os.getenv("USE_ACCELERATE") == "1":
         try:
             from accelerate import Accelerator
-            accelerator = Accelerator()
+            accelerator = Accelerator(mixed_precision=os.getenv("MIXED_PRECISION", "fp16"))
             use_accelerate = True
             device = accelerator.device
             print(f"🔥 Accelerate DDP Enabled on process rank {accelerator.process_index} (Device: {device})!")

@@ -22,8 +22,8 @@ DEV_PATH = "data/val/pile_dev.h5"
 TOKENIZER_PATH = "tokenizer.json"
 
 # Training parameters (Optimized for Kaggle Dual Tesla T4 GPUs 2x15GB with MTP Distillation)
-T_BATCH_SIZE = int(os.getenv("BATCH_SIZE", "2"))           # 2 sequences per GPU to prevent CUDA OOM during MTP+Distillation
-T_GRAD_ACCUM = int(os.getenv("GRAD_ACCUM", "32"))          # Accumulate 32 steps (Effective batch size = 128)
+T_BATCH_SIZE = int(os.getenv("BATCH_SIZE", "1"))           # 1 sequence per GPU to prevent CUDA OOM during MTP+Distillation
+T_GRAD_ACCUM = int(os.getenv("GRAD_ACCUM", "64"))          # Accumulate 64 steps (Effective batch size = 128)
 T_CONTEXT_LENGTH = CONTEXT_LENGTH     
 T_TRAIN_STEPS = 100000     
 T_EVAL_STEPS = 50         
