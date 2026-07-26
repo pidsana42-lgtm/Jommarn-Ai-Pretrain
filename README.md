@@ -48,7 +48,7 @@ Jommarn-Omni was trained on cloud-hosted enterprise accelerators with the follow
     *   **Tokens Processed:** **~1.9 Billion Tokens**
     *   **Time Elapsed:** ~48.5 hours
 *   **Checkpoint & Uploads:**
-    *   The latest checkpoint (including model weights, optimizer states, and scheduler variables for seamless recovery) is securely backed up on the Hugging Face Hub: [Phonsiri/jommarn-omni-checkpoints](https://huggingface.co/Phonsiri/jommarn-omni-checkpoints)
+    *   The latest checkpoint (including model weights, optimizer states, and scheduler variables for seamless recovery) is securely backed up on the Hugging Face Hub: [Jommarn/jommarn-omni-checkpoints](https://huggingface.co/Jommarn/jommarn-omni-checkpoints)
     *   Checkpoint File: `jommarn_omni_206m_l40s_latest.pt` (9.02 GB)
 
 ---
@@ -102,7 +102,7 @@ To resume training on a new node or recover from an interruption:
     ```
 2.  Run the training script with the target repo environment variable:
     ```bash
-    export HF_REPO_ID="Phonsiri/jommarn-omni-checkpoints"
+    export HF_REPO_ID="Jommarn/jommarn-omni-checkpoints"
     python scripts/train_transformer.py
     ```
     *The loader will check the Hub, download `jommarn_omni_206m_l40s_latest.pt` to the local `models/` directory, restore optimizer/scheduler variables, and resume training.*
@@ -110,11 +110,11 @@ To resume training on a new node or recover from an interruption:
 ### 4. Alternating Training Phases
 *   **Phase 1: Text-Only Pre-training (Speak Thai Fluently):**
     ```bash
-    TRAIN_PHASE="text_only" FORCE_RESET=1 HF_REPO_ID="Phonsiri/jommarn-omni-checkpoints" python scripts/train_transformer.py
+    TRAIN_PHASE="text_only" FORCE_RESET=1 HF_REPO_ID="Jommarn/jommarn-omni-checkpoints" python scripts/train_transformer.py
     ```
 *   **Phase 2: Multimodal Pre-training (Open the Eyes):**
     ```bash
-    TRAIN_PHASE="multimodal" HF_REPO_ID="Phonsiri/jommarn-omni-checkpoints" python scripts/train_transformer.py
+    TRAIN_PHASE="multimodal" HF_REPO_ID="Jommarn/jommarn-omni-checkpoints" python scripts/train_transformer.py
     ```
 
 ### 5. Running Inference
@@ -134,3 +134,5 @@ python scripts/test_omni.py --prompt "ประเทศไทย" --temperature
 ---
 *Maintained by the Jommarn-Omni Engine Team*
 😈📸⚡
+
+!cd llm-training-main && HF_REPO_ID="Jommarn/jommarn-omni-checkpoints" python scripts/train_distill_transformer.py
